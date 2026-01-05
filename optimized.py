@@ -2,12 +2,11 @@ import argparse
 import itertools
 from pathlib import Path
 import pandas as pd
-import csv
 import unicodedata
-
 
 __version__ = "0.9.0"
 DEFAULT_INPUT_FILE = Path("assets/Liste_Actions.csv")
+
 
 
 def pick_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -141,35 +140,75 @@ def load_actions_from_excel(file_path: Path) -> list[dict]:
         })
 
     return actions
-    return actions
 
 
-def algo_bruteforce(actions, budget=500,):
+def algo_optimized(actions, max_budget_euros=500):
+    """
+    Optimized investment algorithm using dynamic programming (0/1 Knapsack).
+
+    :param actions: list of dictionaries containing:
+                    - name
+                    - cost (euros)
+                    - benefit (final value after 2 years)
+    :param max_budget_euros: maximum investment allowed in euros
+    :return: best_solution, total_cost_euros, total_profit_euros
+    """
+
+    # Convert budget to cents to avoid floating point precision issues
+    max_budget_cents = int(max_budget_euros * 100)
+
+    # Number of available actions
+    number_of_actions = len(actions)
+
+    # Dynamic programming table:
+    # dp_table[action_index][current_budget]
+    dp_table = [
+        [0] * (max_budget_cents + 1)
+        for _ in range(number_of_actions + 1)
+    ]
+
+    # Build the dynamic programming table
+    for action_index in range(1, number_of_actions + 1):
+        current_action = actions[action_index - 1]
+
+        action_cost_cents = int(current_action["cost"] * 100)
+        action_profit_cents = int(
+            (current_action["benefit"] - current_action["cost"]) * 100
+        )
+
+        for current_budget in range(max_budget_cents + 1):
+
+            if action_cost_cents <= current_budget:
+                dp_table[action_index][current_budget] = max(
+                    dp_table[action_index - 1][current_budget],
+                    dp_table[action_index - 1][current_budget - action_cost_cents]
+                    + action_profit_cents
+                )
+            else:
+                dp_table[action_index][current_budget] = (
+                    dp_table[action_index - 1][current_budget]
+                )
+
+    # Maximum profit achievable (in cents)
+    max_profit_cents = dp_table[number_of_actions][max_budget_cents]
+
+    # Reconstruct the selected actions
+    remaining_budget = max_budget_cents
     best_solution = []
-    total_best_profit = 0.0
-    best_total_cost = 0.0
-    for size in range(1, len(actions) + 1):
-        # Generate all combinations of the given size
-        for combination in itertools.combinations(actions, size):
 
-            # Calculate the total cost of the current combination
-            total_cost = sum(action["cost"] for action in combination)
+    for action_index in range(number_of_actions, 0, -1):
+        if dp_table[action_index][remaining_budget] != dp_table[action_index - 1][remaining_budget]:
+            selected_action = actions[action_index - 1]
+            best_solution.append(selected_action)
+            remaining_budget -= int(selected_action["cost"] * 100)
 
-            # Check if the combination respects the budget constraint
-            if total_cost <= budget:
-                
-                # Calculate the total profit in euros
-                total_profit = sum(action["benefit"] - action["cost"]
-                                   for action in combination)
-                # If this combination is more profitable, keep it
-                if total_profit > total_best_profit:
-                    total_best_profit = total_profit
-                    best_solution = combination
-                    best_total_cost = total_cost
+    # Compute total cost in euros
+    total_cost_euros = sum(action["cost"] for action in best_solution)
 
-    # Return the most profitable valid combination
-    return best_solution, best_total_cost, total_best_profit
+    # Convert profit back to euros
+    total_profit_euros = max_profit_cents / 100
 
+    return best_solution, total_cost_euros, total_profit_euros
 def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -193,13 +232,14 @@ def main(input_file: Path = DEFAULT_INPUT_FILE) -> None:
     print(f"Loading file: {input_file}")
 
     actions = load_actions_from_excel(Path(input_file))
-    best_solution, best_total_cost, total_best_profit = algo_bruteforce(actions)
+    best_solution, best_total_cost, total_best_profit = algo_optimized(actions)
     print("The best solution is:")
     print(best_solution)
     print(f"Total cost: {best_total_cost}")
     print(f"Total profit: {total_best_profit}")
 
-
 if __name__ == "__main__":
     args = parse_args()
     main(input_file=args.input_file)
+    
+    #Complexity et Big-O
