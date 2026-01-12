@@ -1,12 +1,14 @@
 import argparse
 import itertools
+import time
 from pathlib import Path
 import pandas as pd
 import unicodedata
+import psutil
 
-__version__ = "0.9.0"
+
+__version__ = "1.0.0"
 DEFAULT_INPUT_FILE = Path("assets/Liste_Actions.csv")
-
 
 
 def pick_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -16,11 +18,13 @@ def pick_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
             return col
     return None
 
+
 def normalize_column_name(col: str) -> str:
     col = str(col).strip().lower()
     col = unicodedata.normalize("NFKD", col)
     col = "".join(c for c in col if not unicodedata.combining(c))
     return col
+
 
 def to_float(value) -> float | None:
     """Convert numbers written with comma, euro sign, spaces to float."""
@@ -209,6 +213,8 @@ def algo_optimized(actions, max_budget_euros=500):
     total_profit_euros = max_profit_cents / 100
 
     return best_solution, total_cost_euros, total_profit_euros
+
+
 def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -222,24 +228,58 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-def main(input_file: Path = DEFAULT_INPUT_FILE) -> None:
-    """
-    Main entry point of the program.
 
-    :param input_file: Path to the Excel or CSV file
-    """
+def bytes_to_mb(num_bytes: int) -> float:
+    return num_bytes / (1024 * 1024)
+
+
+def main(input_file: Path = DEFAULT_INPUT_FILE) -> None:
     print(f"Program version: {__version__}")
     print(f"Loading file: {input_file}")
 
+    process = psutil.Process()
+
+    # ---- Measure end-to-end (load + algo) ----
+    start_e2e = time.perf_counter()
+    mem_before_e2e = process.memory_info().rss
+
     actions = load_actions_from_excel(Path(input_file))
+
+    # ---- Measure algo only ----
+    mem_before_algo = process.memory_info().rss
+    start_algo = time.perf_counter()
+
     best_solution, best_total_cost, total_best_profit = algo_optimized(actions)
+
+    end_algo = time.perf_counter()
+    mem_after_algo = process.memory_info().rss
+
+    end_e2e = time.perf_counter()
+    mem_after_e2e = process.memory_info().rss
+
+    # Times
+    elapsed_algo = end_algo - start_algo
+    elapsed_e2e = end_e2e - start_e2e
+
+    # Peak RSS (simple: max(before, after))
+    peak_algo_mb = bytes_to_mb(max(mem_before_algo, mem_after_algo))
+    peak_e2e_mb = bytes_to_mb(max(mem_before_e2e, mem_after_e2e))
+    rss_after_run_mb = bytes_to_mb(mem_after_e2e)
+
     print("The best solution is:")
     print(best_solution)
     print(f"Total cost: {best_total_cost}")
     print(f"Total profit: {total_best_profit}")
 
+    print(f"Execution time (algo only): {elapsed_algo:.6f} seconds")
+    print(f"Execution time (load + algo): {elapsed_e2e:.6f} seconds")
+
+    # Same output shape as the other main()
+    print(f"Peak RSS (algo only): {peak_algo_mb:.2f} MB")
+    print(f"Peak RSS (load + algo): {peak_e2e_mb:.2f} MB")
+    print(f"RSS after run: {rss_after_run_mb:.2f} MB")
+
+
 if __name__ == "__main__":
     args = parse_args()
     main(input_file=args.input_file)
-    
-    #Complexity et Big-O

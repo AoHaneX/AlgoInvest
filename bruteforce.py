@@ -4,6 +4,9 @@ from pathlib import Path
 import pandas as pd
 import csv
 import unicodedata
+import time
+import psutil
+import threading
 
 
 __version__ = "0.9.0"
@@ -141,7 +144,10 @@ def load_actions_from_excel(file_path: Path) -> list[dict]:
         })
 
     return actions
-    return actions
+
+
+def bytes_to_mb(num_bytes: int) -> float:
+    return num_bytes / (1024 * 1024)
 
 
 def algo_bruteforce(actions, budget=500,):
@@ -183,6 +189,8 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+
+
 def main(input_file: Path = DEFAULT_INPUT_FILE) -> None:
     """
     Main entry point of the program.
@@ -192,12 +200,49 @@ def main(input_file: Path = DEFAULT_INPUT_FILE) -> None:
     print(f"Program version: {__version__}")
     print(f"Loading file: {input_file}")
 
+    process = psutil.Process()
+
+    # ---- Measure end-to-end (load + algo) ----
+    start_e2e = time.perf_counter()
+    mem_before_e2e = process.memory_info().rss
+
     actions = load_actions_from_excel(Path(input_file))
+
+    # ---- Measure algo only ----
+    mem_before_algo = process.memory_info().rss
+    start_algo = time.perf_counter()
+
     best_solution, best_total_cost, total_best_profit = algo_bruteforce(actions)
+
+    end_algo = time.perf_counter()
+    mem_after_algo = process.memory_info().rss
+
+    end_e2e = time.perf_counter()
+    mem_after_e2e = process.memory_info().rss
+
+    # Times
+    elapsed_algo = end_algo - start_algo
+    elapsed_e2e = end_e2e - start_e2e
+
+    # Peak RSS (simple: max(before, after))
+    peak_algo_mb = bytes_to_mb(max(mem_before_algo, mem_after_algo))
+    peak_e2e_mb = bytes_to_mb(max(mem_before_e2e, mem_after_e2e))
+    rss_after_run_mb = bytes_to_mb(mem_after_e2e)
+
     print("The best solution is:")
     print(best_solution)
     print(f"Total cost: {best_total_cost}")
     print(f"Total profit: {total_best_profit}")
+
+    print(f"Execution time (algo only): {elapsed_algo:.6f} seconds")
+    print(f"Execution time (load + algo): {elapsed_e2e:.6f} seconds")
+
+    # Keep same “shape” of output, but report peak instead of delta
+    print(f"Peak RSS (algo only): {peak_algo_mb:.2f} MB")
+    print(f"Peak RSS (load + algo): {peak_e2e_mb:.2f} MB")
+    print(f"RSS after run: {rss_after_run_mb:.2f} MB")
+    print(f"Peak RSS (load + algo): {peak_e2e_mb:.2f} MB")
+    print(f"RSS after run: {rss_after_run_mb:.2f} MB")
 
 
 if __name__ == "__main__":
